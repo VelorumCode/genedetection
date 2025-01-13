@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DNA Analysis Results</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css/out/light.css">
+    <script src="https://cdn.jsdelivr.net/npm/particles.js@2.0.0/particles.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #1e1e1e;
+            color: white;
+        }
+
+        #particles-js {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
+
+        .content {
+            text-align: center;
+            background-color: rgba(30, 30, 30, 0.8);
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            z-index: 1;
+            position: relative;
+        }
+
+        .content h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .content p {
+            margin-bottom: 2rem;
+            font-size: 1rem;
+        }
+
+        .content .results {
+            background-color: rgba(255, 255, 255, 0.1);
+            padding: 1rem;
+            border-radius: 5px;
+            margin-bottom: 1rem;
+            text-align: left;
+            font-family: monospace;
+        }
+
+        .content button {
+            padding: 0.8rem 2rem;
+            border: none;
+            background-color: #4caf50;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .content button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="particles-js"></div>
+
+    <div class="content">
+        <h1>DNA Analysis Results</h1>
+        <p>Below are the results of the DNA sequence analysis:</p>
+        <div class="results" id="results">
+            <p>No data available. Please analyze a DNA sequence to see results.</p>
+        </div>
+        <button onclick="goBack()">Go Back</button>
+    </div>
+
+    <script>
+        particlesJS("particles-js", {
+            "particles": {
+                "number": {
+                    "value": 120,
+                    "density": {
+                        "enable": true,
+                        "value_area": 1000
+                    }
+                },
+                "color": {
+                    "value": "#ffffff"
+                },
+                "shape": {
+                    "type": "circle",
+                    "stroke": {
+                        "width": 0,
+                        "color": "#000000"
+                    }
+                },
+                "opacity": {
+                    "value": 0.6,
+                    "random": false
+                },
+                "size": {
+                    "value": 5,
+                    "random": true
+                },
+                "line_linked": {
+                    "enable": true,
+                    "distance": 120,
+                    "color": "#ffffff",
+                    "opacity": 0.6,
+                    "width": 1.2
+                },
+                "move": {
+                    "enable": true,
+                    "speed": 4,
+                    "direction": "none",
+                    "random": false,
+                    "straight": false,
+                    "out_mode": "out"
+                }
+            },
+            "interactivity": {
+                "detect_on": "canvas",
+                "events": {
+                    "onhover": {
+                        "enable": true,
+                        "mode": "grab"
+                    },
+                    "onclick": {
+                        "enable": true,
+                        "mode": "push"
+                    },
+                    "resize": true
+                },
+                "modes": {
+                    "grab": {
+                        "distance": 200,
+                        "line_linked": {
+                            "opacity": 0.8
+                        }
+                    },
+                    "bubble": {
+                        "distance": 400,
+                        "size": 40,
+                        "duration": 2,
+                        "opacity": 8,
+                        "speed": 3
+                    },
+                    "repulse": {
+                        "distance": 200
+                    },
+                    "push": {
+                        "particles_nb": 4
+                    }
+                }
+            },
+            "retina_detect": true
+        });
+
+        function goBack() {
+            window.location.href = 'index.html';
+        }
+
+        // Simulate loading results (replace with actual data fetching logic)
+        document.getElementById('results').innerHTML = `
+            <p><strong>Gene Matches:</strong></p>
+            <ul>
+                <li>BRCA1: Found</li>
+                <li>TP53: Not Found</li>
+                <li>EGFR: Found</li>
+            </ul>
+            <p><strong>Risk Assessment:</strong> High risk for breast cancer based on BRCA1.</p>
+        `;
+    </script>
+</body>
+</html>
