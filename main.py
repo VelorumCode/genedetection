@@ -1,326 +1,183 @@
-import random
-import math
-from typing import Dict, List, Tuple, Optional
-import numpy as np
-from datetime import datetime
+import json
+from typing import Dict, List, Tuple, Optional, Any
 
-class FusionTree:
-    def __init__(self):
-        self.genes = {}
-        self.disease_metadata = {}
-        
-    def add_gene(self, disease: str, gene_sequences: List[str], prevalence: float = None, 
-                 age_risk: Dict = None, gender_risk: Dict = None):
+# --- Constants ---
+DATABASE_FILE = 'database.json'
+MARKER_MATCH_THRESHOLD = 0.8 # Example: Require 80% match if using alignment, or exact match if using 'in'
+
+# --- Helper Functions ---
+
+def load_disease_database(filepath: str = DATABASE_FILE) -> Dict[str, Dict[str, Any]]:
+    """Loads the disease database from a JSON file."""
+    try:
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print(f"Error: Database file '{filepath}' not found.")
+        return {}
+    except json.JSONDecodeError:
+        print(f"Error: Could not decode JSON from '{filepath}'.")
+        return {}
+
+# --- Core Classes ---
+
+class GeneDatabase:
+    """
+    Stores disease information, associated genetic markers, and metadata.
+    Provides methods to search for markers within a given DNA sequence.
+    """
+    def __init__(self, database_path: str = DATABASE_FILE):
+        self.diseases_data = load_disease_database(database_path)
+        if not self.diseases_data:
+            print("Warning: Gene database is empty or failed to load.")
+
+    def get_disease_data(self, disease: str) -> Optional[Dict[str, Any]]:
+        """Retrieve metadata for a specific disease."""
+        return self.diseases_data.get(disease)
+
+    def search_markers(self, input_sequence: str) -> Dict[str, List[str]]:
         """
-        Add gene sequences to the Fusion Tree for a specific disease with metadata.
-        
+        Searches for known disease markers within the input DNA sequence.
+
         Args:
-            disease: Name of the disease
-            gene_sequences: List of DNA sequences associated with the disease
-            prevalence: Global prevalence of the disease (percentage)
-            age_risk: Dictionary of age ranges and their risk multipliers
-            gender_risk: Dictionary of gender-specific risk multipliers
+            input_sequence: The DNA sequence provided by the user.
+
+        Returns:
+            A dictionary where keys are disease names and values are lists
+            of marker sequences found in the input sequence for that disease.
+            Returns an empty dictionary if no matches are found.
         """
-        self.genes[disease] = gene_sequences
-        
-        self.disease_metadata[disease] = {
-            'prevalence': prevalence or 0.01,
-            'age_risk': age_risk or {'0-100': 1.0},
-            'gender_risk': gender_risk or {'M': 1.0, 'F': 1.0},
-            'mutation_rate': random.uniform(0.001, 0.01)
-        }
-    
-    def search_gene(self, sequence: str) -> Dict[str, List[Tuple[str, float]]]:
-        """
-        Search for matching gene sequences and return matches with similarity scores.
-        """
-        matches = {}
-        
-        for disease, gene_sequences in self.genes.items():
-            disease_matches = []
-            
-            for gene in gene_sequences:
-                similarity = calculate_sequence_similarity(sequence, gene)
-                if similarity > 0.6:  # Threshold for considering a match
-                    disease_matches.append((gene, similarity))
-            
-            if disease_matches:
-                matches[disease] = disease_matches
-        
+        matches: Dict[str, List[str]] = {}
+        if not self.diseases_data or not input_sequence:
+            return matches # Return empty if no data or no sequence
+
+        # Ensure input is valid DNA
+        input_sequence = input_sequence.upper()
+        if not all(base in 'ATCG' for base in input_sequence):
+             # In a real scenario, might handle 'N' or other IUPAC codes
+             print("Warning: Input sequence contains non-ATCG characters.")
+             # Decide whether to filter them out or reject the sequence
+             input_sequence = ''.join(filter(lambda base: base in 'ATCG', input_sequence))
+             if not input_sequence: return matches # Return empty if only invalid chars
+
+        for disease, info in self.diseases_data.items():
+            found_markers_for_disease = []
+            markers = info.get("markers", [])
+            for marker in markers:
+                marker = marker.upper() # Ensure marker is uppercase
+                # --- Simple Substring Matching ---
+                # Check if the marker sequence exists within the input sequence
+                if marker in input_sequence:
+                    found_markers_for_disease.append(marker)
+
+                # --- Alternative: Basic Similarity (Less Recommended for Variants) ---
+                # If you wanted to keep a similarity score, you'd need a function:
+                # similarity = calculate_similarity(input_sequence, marker) # Needs a robust function
+                # if similarity >= MARKER_MATCH_THRESHOLD:
+                #    found_markers_for_disease.append((marker, similarity)) # Store marker and score
+
+            if found_markers_for_disease:
+                matches[disease] = found_markers_for_disease
+
         return matches
 
-# Rest of the code remains the same, including DiseaseAnalyzer class, initialize_disease_database,
-# calculate_sequence_similarity, and main function...
-
-def calculate_sequence_similarity(seq1: str, seq2: str) -> float:
-    """
-    Calculate the similarity between two DNA sequences using a more sophisticated algorithm.
-    Returns a similarity score between 0 and 1.
-    """
-    if not seq1 or not seq2:
-        return 0.0
-    
-    # Ensure sequences are of equal length for comparison
-    min_length = min(len(seq1), len(seq2))
-    seq1 = seq1[:min_length]
-    seq2 = seq2[:min_length]
-    
-    matches = sum(1 for a, b in zip(seq1, seq2) if a == b)
-    similarity = matches / min_length
-    
-    # Apply weighted scoring for consecutive matches
-    consecutive_bonus = 0
-    current_streak = 0
-    
-    for a, b in zip(seq1, seq2):
-        if a == b:
-            current_streak += 1
-            consecutive_bonus += (current_streak * 0.1)  # Bonus increases with streak length
-        else:
-            current_streak = 0
-    
-    # Normalize bonus and combine with base similarity
-    final_similarity = min(1.0, similarity + (consecutive_bonus / len(seq1)))
-    return final_similarity
-
-# Rest of the code remains exactly the same...
 class DiseaseAnalyzer:
-    def __init__(self, fusion_tree: FusionTree):
-        self.fusion_tree = fusion_tree
-        
-    def calculate_probability(self, matches: Dict, patient_age: int = None, 
-                            gender: str = None) -> Dict[str, Dict]:
+    """
+    Analyzes the results from GeneDatabase to calculate risk scores
+    based on found markers and patient demographic data.
+    """
+    def __init__(self, gene_database: GeneDatabase):
+        self.db = gene_database
+
+    def calculate_risk_score(self,
+                             matches: Dict[str, List[str]],
+                             patient_age: Optional[int] = None,
+                             gender: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
         """
-        Calculate comprehensive disease probabilities with enhanced accuracy.
+        Calculates a risk score for each matched disease based on genetic
+        matches, disease prevalence, and demographic factors.
+
+        Args:
+            matches: Dictionary of diseases and the markers found for them.
+            patient_age: Optional age of the patient.
+            gender: Optional gender of the patient ('M' or 'F').
+
+        Returns:
+            A dictionary where keys are disease names and values contain
+            details about the risk calculation (markers found, risk factors,
+            and a final 'risk_score').
         """
         if not matches:
             return {}
-        
-        analysis_results = {}
-        total_weighted_matches = 0
-        
-        for disease, genes in matches.items():
-            metadata = self.fusion_tree.disease_metadata[disease]
-            
-            # Base genetic match probability
-            base_probability = sum(similarity for _, similarity in genes) / len(genes)
-            
-            # Prevalence adjustment
-            prevalence_factor = metadata['prevalence']
-            
-            # Age adjustment
+
+        analysis_results: Dict[str, Dict[str, Any]] = {}
+        gender = gender.upper() if gender else None
+
+        for disease, found_markers in matches.items():
+            metadata = self.db.get_disease_data(disease)
+            if not metadata:
+                continue # Skip if no metadata found for this disease
+
+            # --- Base Risk Factors ---
+            # 1. Genetic Component: Base risk increases if *any* marker is found.
+            #    (Could be more complex, e.g., weighting different markers)
+            genetic_factor = 1.0 # Base factor if a marker is found
+
+            # 2. Prevalence Factor: Use disease prevalence. Lower prevalence might mean
+            #    a found marker is more significant, or could just scale the base risk.
+            #    Let's use it as a scaler. Handle potential missing data.
+            prevalence_factor = metadata.get('prevalence', 0.0001) # Default low prevalence
+
+            # 3. Age Adjustment
             age_multiplier = 1.0
             if patient_age is not None:
-                age_risks = metadata['age_risk']
+                age_risks = metadata.get('age_risk', {})
                 for age_range, multiplier in age_risks.items():
-                    start, end = map(int, age_range.split('-'))
-                    if start <= patient_age <= end:
-                        age_multiplier = multiplier
-                        break
-            
-            # Gender adjustment
+                    try:
+                        start_str, end_str = age_range.split('-')
+                        start = int(start_str)
+                        end = int(end_str)
+                        if start <= patient_age <= end:
+                            age_multiplier = float(multiplier)
+                            break
+                    except ValueError:
+                        print(f"Warning: Invalid age range format '{age_range}' for disease '{disease}'")
+                        continue # Skip this invalid range
+
+            # 4. Gender Adjustment
             gender_multiplier = 1.0
-            if gender and gender.upper() in metadata['gender_risk']:
-                gender_multiplier = metadata['gender_risk'][gender.upper()]
-            
-            # Calculate weighted probability
-            weighted_probability = (base_probability * 
-                                 prevalence_factor * 
-                                 age_multiplier * 
-                                 gender_multiplier)
-            
-            total_weighted_matches += weighted_probability
-            
+            if gender and gender in ['M', 'F']:
+                gender_risks = metadata.get('gender_risk', {})
+                gender_multiplier = float(gender_risks.get(gender, 1.0))
+
+            # --- Calculate Final Risk Score ---
+            # Combine factors multiplicatively (this is a simplification)
+            # A higher score indicates higher relative risk based on the model.
+            # NOTE: This score is NOT a probability.
+            risk_score = (genetic_factor *
+                          prevalence_factor *
+                          age_multiplier *
+                          gender_multiplier)
+
+            # Scale score for better readability (optional)
+            # Multiplying by a large number avoids tiny decimals
+            display_score = risk_score * 100000
+
             analysis_results[disease] = {
-                'genetic_match': base_probability,
-                'prevalence_factor': prevalence_factor,
-                'age_multiplier': age_multiplier,
-                'gender_multiplier': gender_multiplier,
-                'weighted_probability': weighted_probability
+                'markers_found': found_markers,
+                'description': metadata.get('description', 'No description available.'),
+                'risk_factors': {
+                   'genetic_component': genetic_factor, # Simplified: 1 if marker found
+                   'prevalence': prevalence_factor,
+                   'age_multiplier': age_multiplier,
+                   'gender_multiplier': gender_multiplier
+                },
+                'calculated_risk_score': display_score # This is a relative score, not probability
             }
-        
-        # Normalize probabilities
-        if total_weighted_matches > 0:
-            for disease in analysis_results:
-                analysis_results[disease]['final_probability'] = (
-                    analysis_results[disease]['weighted_probability'] / total_weighted_matches * 100
-                )
-        
-        return analysis_results
 
-def initialize_disease_database() -> Dict:
-    """
-    Initialize database of diseases with genetic markers and risk factors.
-    """
-    return {
-        "Cystic Fibrosis": {
-            "sequences": ["ATCGTACGATC", "GCTAGCTAGCT", "CGTATCGATCG"],
-            "prevalence": 0.04,
-            "age_risk": {"0-20": 1.2, "21-40": 1.0, "41-100": 0.8},
-            "gender_risk": {"M": 1.0, "F": 1.0}
-        },
-        "Sickle Cell Anemia": {
-            "sequences": ["GTACGGTACGGT", "TACGGTACGGTA", "ACGGTACGGTAT"],
-            "prevalence": 0.03,
-            "age_risk": {"0-30": 1.3, "31-100": 1.0},
-            "gender_risk": {"M": 1.0, "F": 1.0}
-        },
-        "Huntington's Disease": {
-            "sequences": ["TACGGTACAGTC", "ACGGTACAGTCT", "CGGTACAGTCTA"],
-            "prevalence": 0.01,
-            "age_risk": {"0-30": 0.8, "31-50": 1.2, "51-100": 1.5},
-            "gender_risk": {"M": 1.0, "F": 1.0}
-        },
-        "BRCA1 Breast Cancer": {
-            "sequences": ["CGTAGCTAGTAC", "GTAGCTAGTACG", "TAGCTAGTACGT"],
-            "prevalence": 0.12,
-            "age_risk": {"0-30": 0.5, "31-50": 1.3, "51-100": 1.8},
-            "gender_risk": {"M": 0.1, "F": 1.8}
-        },
-        "Early-Onset Alzheimer's": {
-            "sequences": ["TAGCTAGTCCGA", "AGCTAGTCCGAT", "GCTAGTCCGATA"],
-            "prevalence": 0.08,
-            "age_risk": {"0-40": 0.3, "41-60": 1.2, "61-100": 2.0},
-            "gender_risk": {"M": 0.8, "F": 1.2}
-        }
-    }
+        # Optional: Sort results by risk score (descending)
+        sorted_results = dict(sorted(analysis_results.items(),
+                                     key=lambda item: item[1]['calculated_risk_score'],
+                                     reverse=True))
 
-def main():
-    print("Advanced Genetic Disease Detection System v2.0")
-    print("=" * 60)
-    
-    # Initialize the system
-    fusion_tree = FusionTree()
-    analyzer = DiseaseAnalyzer(fusion_tree)
-    
-    # Load disease database
-    diseases = initialize_disease_database()
-    
-    # Add diseases to the fusion tree
-    for disease, info in diseases.items():
-        fusion_tree.add_gene(
-            disease=disease,
-            gene_sequences=info["sequences"],
-            prevalence=info["prevalence"],
-            age_risk=info["age_risk"],
-            gender_risk=info["gender_risk"]
-        )
-    
-    print(f"\nSystem initialized with {len(diseases)} diseases and their genetic markers.")
-    
-    while True:
-        print("\nOptions:")
-        print("1. Analyze DNA sequence")
-        print("2. List available diseases")
-        print("3. Exit")
-        
-        choice = input("\nEnter your choice (1-3): ")
-        
-        if choice == "3":
-            break
-        elif choice == "2":
-            print("\nAvailable Diseases for Analysis:")
-            print("-" * 40)
-            for i, disease in enumerate(diseases.keys(), 1):
-                print(f"{i}. {disease}")
-        elif choice == "1":
-            sequence = input("\nEnter the DNA sequence to analyze: ").strip().upper()
-            age = input("Enter patient age (or press Enter to skip): ")
-            gender = input("Enter patient gender (M/F, or press Enter to skip): ").upper()
-            
-            try:
-                age = int(age) if age else None
-            except ValueError:
-                print("Invalid age entered, continuing without age adjustment...")
-                age = None
-            
-            if gender and gender not in ['M', 'F']:
-                print("Invalid gender entered, continuing without gender adjustment...")
-                gender = None
-            
-            # Search for matches
-            matches = fusion_tree.search_gene(sequence)
-            
-            if matches:
-                print("\nGenetic Analysis Results:")
-                print("=" * 60)
-                
-                # Calculate comprehensive probabilities
-                analysis = analyzer.calculate_probability(matches, age, gender)
-                
-                # Sort diseases by probability
-                sorted_diseases = sorted(
-                    analysis.items(),
-                    key=lambda x: x[1]['final_probability'],
-                    reverse=True
-                )
-                
-                # Display results
-                for disease, details in sorted_diseases:
-                    print(f"\n{disease}:")
-                    print(f"  Final Probability: {details['final_probability']:.2f}%")
-                    print("  Risk Factors:")
-                    print(f"    - Genetic Match: {details['genetic_match']:.2f}")
-                    print(f"    - Prevalence Factor: {details['prevalence_factor']:.3f}")
-                    print(f"    - Age Risk Multiplier: {details['age_multiplier']:.2f}")
-                    print(f"    - Gender Risk Multiplier: {details['gender_multiplier']:.2f}")
-            else:
-                print("\nNo significant genetic matches found in the database.")
-        else:
-            print("\nInvalid choice. Please try again.")
-
-    print("\nThank you for using the Advanced Genetic Disease Detection System!")
-
-def calculate_sequence_similarity(seq1: str, seq2: str) -> float:
-    """
-    Calculate the similarity between two DNA sequences using a more sophisticated algorithm.
-    Returns a similarity score between 0 and 1.
-    """
-    if not seq1 or not seq2:
-        return 0.0
-    
-    # Ensure sequences are of equal length for comparison
-    min_length = min(len(seq1), len(seq2))
-    seq1 = seq1[:min_length]
-    seq2 = seq2[:min_length]
-    
-    matches = sum(1 for a, b in zip(seq1, seq2) if a == b)
-    similarity = matches / min_length
-    
-    # Apply weighted scoring for consecutive matches
-    consecutive_bonus = 0
-    current_streak = 0
-    
-    for a, b in zip(seq1, seq2):
-        if a == b:
-            current_streak += 1
-            consecutive_bonus += (current_streak * 0.1)  # Bonus increases with streak length
-        else:
-            current_streak = 0
-    
-    # Normalize bonus and combine with base similarity
-    final_similarity = min(1.0, similarity + (consecutive_bonus / len(seq1)))
-    return final_similarity
-
-def search_gene(self, sequence: str) -> Dict[str, List[Tuple[str, float]]]:
-    """
-    Search for matching gene sequences and return matches with similarity scores.
-    Added to FusionTree class.
-    """
-    matches = {}
-    
-    for disease, gene_sequences in self.genes.items():
-        disease_matches = []
-        
-        for gene in gene_sequences:
-            similarity = calculate_sequence_similarity(sequence, gene)
-            if similarity > 0.6:  # Threshold for considering a match
-                disease_matches.append((gene, similarity))
-        
-        if disease_matches:
-            matches[disease] = disease_matches
-    
-    return matches
-
-if __name__ == "__main__":
-    main()
+        return sorted_results
